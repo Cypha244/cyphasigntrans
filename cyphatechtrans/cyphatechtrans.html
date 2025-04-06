@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>CyphaTech Translator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- MediaPipe Hands -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body, html {
+      margin: 0;
+      padding: 0;
+      font-family: 'Segoe UI', sans-serif;
+      height: 100%;
+      background-color: #f0f4f8;
+    }
+
+    #landingPage {
+      background: url('https://images.unsplash.com/photo-1605379399642-870262d3d051') no-repeat center center/cover;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      text-shadow: 1px 1px 5px #000;
+      text-align: center;
+    }
+
+    #landingPage h1 {
+      font-size: 10vw;
+      margin-bottom: 20px;
+    }
+
+    #landingPage button {
+      font-size: 3vw; /* Smaller font size */
+      padding: 10px 20px;
+      background-color: #3498db;
+      border: none;
+      border-radius: 10px;
+      color: white;
+    }
+
+    #mainApp {
+      display: none;
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 960px;
+      margin: auto;
+      background: #fff;
+      padding: 20px;
+      border-radius: 15px;
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    }
+
+    h1 {
+      font-size: 6vw;
+      color: #2c3e50;
+      text-align: center;
+    }
+
+    label {
+      font-weight: bold;
+      margin-top: 20px;
+      display: block;
+    }
+
+    textarea, select, button {
+      width: 100%;
+      font-size: 1rem;
+      padding: 12px;
+      margin-top: 10px;
+      margin-bottom: 20px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+    }
+
+    button {
+      background-color: #3498db;
+      color: white;
+      border: none;
+    }
+
+    button:hover {
+      background-color: #2980b9;
+    }
+
+    #cameraContainer {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      margin-bottom: 15px;
+    }
+
+    video, canvas {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      border-radius: 10px;
+    }
+
+    .output-box {
+      background-color: #ecf0f1;
+      padding: 15px;
+      border-radius: 10px;
+      min-height: 50px;
+    }
+
+    @media (min-width: 768px) {
+      h1 {
+        font-size: 2rem;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Landing Page -->
+  <div id="landingPage">
+    <h1>CyphaTech</h1>
+    <button onclick="enterApp()">Start</button>
+  </div>
+
+  <!-- Main App -->
+  <div id="mainApp">
+    <div class="container">
+      <h1>Text to Speech & Sign Language</h1>
+
+      <label for="text">Enter text to speak:</label>
+      <textarea id="text" rows="3" placeholder="Type something..."></textarea>
+      <button onclick="speakText()">🔊 Speak</button>
+
+      <label>Live Camera (for Sign Detection):</label>
+      <button onclick="flipCamera()">🔄 Flip Camera</button>
+      <div id="cameraContainer">
+        <video id="inputVideo" autoplay muted playsinline></video>
+        <canvas id="outputCanvas"></canvas>
+      </div>
+
+      <button onclick="translateSign()">📝 Translate</button>
+
+      <label>Recognized Sign Output:</label>
+      <div class="output-box" id="recognizedText"><em>(Waiting...)</em></div>
+    </div>
+  </div>
+
+  <script>
+    function enterApp() {
+      document.getElementById('landingPage').style.display = 'none';
+      document.getElementById('mainApp').style.display = 'block';
+    }
+
+    function speakText() {
+      const text = document.getElementById("text").value;
+      const synth = window.speechSynthesis;
+      const utter = new SpeechSynthesisUtterance(text);
+      synth.speak(utter);
+    }
+
+    function translateSign() {
+      document.getElementById('recognizedText').innerText =
+        currentGesture || "No sign detected yet.";
+
+      if (cameraInstance) {
+        cameraInstance.stop();
+        cameraInstance = null;
+      }
+    }
+
+    let useFrontCamera = true;
+    let cameraInstance;
+    let currentGesture = "";
+
+    const videoElement = document.getElementById('inputVideo');
+    const canvasElement = document.getElementById('outputCanvas');
+    const canvasCtx = canvasElement.getContext('2d');
+
+    const hands = new Hands({
+      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+    });
+
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.8,
+      minTrackingConfidence: 0.5
+    });
+
+    hands.onResults(results => {
+      canvasCtx.save();
+      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const landmarks = results.multiHandLandmarks[0];
+        drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+        drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
+
+        const fingerCount = countExtendedFingers(landmarks);
+        currentGesture = `Detected ${fingerCount} finger${fingerCount === 1 ? '' : 's'}`;
+      } else {
+        currentGesture = "";
+      }
+
+      canvasCtx.restore();
+    });
+
+    function countExtendedFingers(landmarks) {
+      let count = 0;
+      if (landmarks[4].x < landmarks[3].x) count++;
+      if (landmarks[8].y < landmarks[6].y) count++;
+      if (landmarks[12].y < landmarks[10].y) count++;
+      if (landmarks[16].y < landmarks[14].y) count++;
+      if (landmarks[20].y < landmarks[18].y) count++;
+      return count;
+    }
+
+    function flipCamera() {
+      useFrontCamera = !useFrontCamera;
+      startCameraStream();
+    }
+
+    function startCameraStream() {
+      if (cameraInstance) {
+        cameraInstance.stop();
+      }
+
+      const facingMode = useFrontCamera ? "user" : "environment";
+
+      cameraInstance = new Camera(videoElement, {
+        onFrame: async () => {
+          await hands.send({ image: videoElement });
+        },
+        facingMode: facingMode,
+        width: 640,
+        height: 480
+      });
+
+      cameraInstance.start();
+    }
+
+    // Start the camera by default
+    startCameraStream();
+  </script>
+</body>
+</html>
